@@ -65,6 +65,13 @@ To analyze our VCS data we need to define a temporal period of interest. Over ti
 
           svn log -v --xml > logfile.log -r {YYYYmmDD}:HEAD
 
+#### Generate a Fossil log file using the following command:
+
+          fossil timeline -F '%nCommit: %h%nAuthor: %a%nDate: %d%nComment: %c' -t ci -v | tail -n +2 > logfile.log
+or (if you don't want the full history)
+
+          fossil timeline -F '%nCommit: %h%nAuthor: %a%nDate: %d%nComment: %c' -t ci -v before YYYY-MM-DD after YYYY-MM-DD | tail -n +2 > logfile.log
+
 #### Generate a git log file using the following command:
 
 The first options is the legacy format used in Your Code As A Crime Scene. Use the `-c git` parse option when [Running Code Maat](#running-code-maat).
@@ -124,7 +131,7 @@ When invoked with `-h`, Code Maat prints its usage:
 
              Options:
                -l, --log LOG                                         Log file with input data
-               -c, --version-control VCS                             Input vcs module type: supports svn, git, git2, hg, p4, or tfs
+               -c, --version-control VCS                             Input vcs module type: supports svn, fossil, git, git2, hg, p4, or tfs
                -a, --analysis ANALYSIS                      authors  The analysis to run (abs-churn, age, author-churn, authors, communication, coupling, entity-churn, entity-effort, entity-ownership, fragmentation, identity, main-dev, main-dev-by-revs, messages, refactoring-main-dev, revisions, soc, summary)
               --input-encoding INPUT-ENCODING                        Specify an encoding other than UTF-8 for the log file
                -r, --rows ROWS                                       Max rows in output

@@ -5,6 +5,7 @@
 
 (ns code-maat.app.app
   (:require [code-maat.parsers.svn :as svn]
+            [code-maat.parsers.fossil :as fossil]
             [code-maat.parsers.git :as git]
             [code-maat.parsers.git2 :as git2]
             [code-maat.parsers.mercurial :as hg]
@@ -53,37 +54,37 @@
 ;;; TODO: consider making this dynamic in order to support new
 ;;;       analysis methods as plug-ins.
 (def ^:const supported-analysis
-  {"authors" authors/by-count
-   "revisions" entities/by-revision
-   "coupling" coupling/by-degree
-   "soc" soc/by-degree
-   "summary" summary/overview
-   "identity" (fn [input _] input) ; for debugging - dumps all raw data
-   "abs-churn" churn/absolutes-trend
-   "author-churn" churn/by-author
-   "entity-churn" churn/by-entity
-   "entity-ownership" churn/as-ownership
-   "main-dev" churn/by-main-developer
+  {"authors"              authors/by-count
+   "revisions"            entities/by-revision
+   "coupling"             coupling/by-degree
+   "soc"                  soc/by-degree
+   "summary"              summary/overview
+   "identity"             (fn [input _] input)              ; for debugging - dumps all raw data
+   "abs-churn"            churn/absolutes-trend
+   "author-churn"         churn/by-author
+   "entity-churn"         churn/by-entity
+   "entity-ownership"     churn/as-ownership
+   "main-dev"             churn/by-main-developer
    "refactoring-main-dev" churn/by-refactoring-main-developer
-   "entity-effort" effort/as-revisions-per-author
-   "main-dev-by-revs" effort/as-main-developer-by-revisions
-   "fragmentation" effort/as-entity-fragmentation
-   "communication" communication/by-shared-entities
-   "messages" commits/by-word-frequency
-   "age" age/by-age})
+   "entity-effort"        effort/as-revisions-per-author
+   "main-dev-by-revs"     effort/as-main-developer-by-revisions
+   "fragmentation"        effort/as-entity-fragmentation
+   "communication"        communication/by-shared-entities
+   "messages"             commits/by-word-frequency
+   "age"                  age/by-age})
 
 (defn analysis-names
   []
   (->>
-   (keys supported-analysis)
-   sort
-   (string/join ", ")))
+    (keys supported-analysis)
+    sort
+    (string/join ", ")))
 
 (defn- fail-for-invalid-analysis
   [requested-analysis]
   (throw (IllegalArgumentException.
-          (str "Invalid analysis requested: " requested-analysis ". "
-               "Valid options are: " (analysis-names)))))
+           (str "Invalid analysis requested: " requested-analysis ". "
+                "Valid options are: " (analysis-names)))))
 
 (defn- make-analysis
   "Returns the analysis to run while closing over the options.
@@ -101,7 +102,7 @@
       (throw ae))
     (catch Exception e
       (throw (IllegalArgumentException.
-              (str vcs-name ": Failed to parse the given file - is it a valid logfile?"))))))
+               (str vcs-name ": Failed to parse the given file - is it a valid logfile?"))))))
 
 (defn- slurp-encoded
   [logfile-name options]
@@ -112,53 +113,60 @@
 (defn- hg->modifications
   [logfile-name options]
   (run-parser-in-error-handling-context
-   #(hg/parse-log logfile-name options)
-   "Mercurial"))
+    #(hg/parse-log logfile-name options)
+    "Mercurial"))
 
 (defn- svn-xml->modifications
   [logfile-name options]
   (run-parser-in-error-handling-context
-   #(-> logfile-name xml/file->zip (svn/zip->modification-sets options))
-   "svn"))
+    #(-> logfile-name xml/file->zip (svn/zip->modification-sets options))
+    "svn"))
+
+(defn- fossil->modifications
+  [logfile-name options]
+  (run-parser-in-error-handling-context
+    #(fossil/parse-log logfile-name options)
+    "fossil"))
 
 (defn- git->modifications
   "Legacy parser for git. Maintained for backwards compatibility with 
    the examples in Your Code as a Crime Scene. Prefer the git2 parser instead."
   [logfile-name options]
   (run-parser-in-error-handling-context
-   #(git/parse-log logfile-name options)
-   "git"))
+    #(git/parse-log logfile-name options)
+    "git"))
 
 (defn- git2->modifications
   [logfile-name options]
   (run-parser-in-error-handling-context
-   #(git2/parse-log logfile-name options)
-   "git2"))
+    #(git2/parse-log logfile-name options)
+    "git2"))
 
 (defn- p4->modifications
   [logfile-name options]
   (run-parser-in-error-handling-context
-   #(p4/parse-log logfile-name options)
-   "Perforce"))
+    #(p4/parse-log logfile-name options)
+    "Perforce"))
 
 (defn- tfs->modifications
-   [logfile-name options]
-   (run-parser-in-error-handling-context
+  [logfile-name options]
+  (run-parser-in-error-handling-context
     #(tfs/parse-log logfile-name options)
     "TFS"))
-  
+
 (defn- parser-from
   [{:keys [version-control]}]
   (case version-control
-    "svn"  svn-xml->modifications
-    "git"  git->modifications 
+    "svn" svn-xml->modifications
+    "fossil" fossil->modifications
+    "git" git->modifications
     "git2" git2->modifications
-    "hg"   hg->modifications
-    "p4"   p4->modifications
-    "tfs"  tfs->modifications
+    "hg" hg->modifications
+    "p4" p4->modifications
+    "tfs" tfs->modifications
     (throw (IllegalArgumentException.
-            (str "Invalid --version-control specified: " version-control
-                 ". Supported options are: svn, git, git2, hg, p4, or tfs.")))))
+             (str "Invalid --version-control specified: " version-control
+                  ". Supported options are: svn, fossil, git, git2, hg, p4, or tfs.")))))
 
 (defn- aggregate-on-boundaries
   "The individual changes may be aggregated into layers
@@ -202,14 +210,14 @@
 
 (defn- throw-internal-error [e]
   (throw (IllegalArgumentException.
-          (str "Internal error - please report it. Details = "
-               (.getMessage e)))))
+           (str "Internal error - please report it. Details = "
+                (.getMessage e)))))
 
 (defn- run-with-recovery-point
   [analysis-fn changes output-fn!]
   (try
     (output-fn! (analysis-fn changes))
-    (catch AssertionError e ; typically a pre- or post-condition
+    (catch AssertionError e                                 ; typically a pre- or post-condition
       (throw-internal-error e))
     (catch IllegalArgumentException e
       (throw e))
@@ -219,11 +227,11 @@
 (defn- parse-commits-to-dataset
   [vcs-parser logfile-name options]
   (->>
-   (vcs-parser logfile-name options)
-   (aggregate-on-boundaries options)
-   (aggregate-on-temporal-period options)
-   (aggregate-authors-in-teams options)
-   incanter/to-dataset))
+    (vcs-parser logfile-name options)
+    (aggregate-on-boundaries options)
+    (aggregate-on-temporal-period options)
+    (aggregate-authors-in-teams options)
+    incanter/to-dataset))
 
 (defn run
   "Runs the application using the given options.
@@ -236,4 +244,4 @@
         commits (parse-commits-to-dataset vcs-parser logfile-name options)
         analysis (make-analysis options)
         output! (make-output options)]
-      (run-with-recovery-point analysis commits output!)))
+    (run-with-recovery-point analysis commits output!)))
